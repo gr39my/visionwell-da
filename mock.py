@@ -56,22 +56,42 @@ def rank_students(school_key):
     return sorted(students.to_dict('records'), key=lambda s: -func(s))
 
 def deferred_acceptance():
-    proposals = {s['name']: 0 for _, s in students.iterrows()}
+    students_list = students.to_dict("records")
+    proposals = {s['name']: 0 for s in students_list}
     matches = {school: [] for school in schools}
+    matched_students = set()
+
     while True:
-        free_students = [s for s in students.to_dict('records') if proposals[s['name']] < 6 and all(s['name'] not in [m['name'] for m in matches[school]] for school in matches)]
-        if not free_students:
-            break
-        for s in free_students:
-            choice = s['preferences'][proposals[s['name']]]
+        proposals_this_round = {}
+        # プロポーズする学生を選定
+        for s in students_list:
+            if s['name'] in matched_students:
+                continue
+            if proposals[s['name']] >= len(s['preferences']):
+                continue
+            preferred_school = s['preferences'][proposals[s['name']]]
             proposals[s['name']] += 1
-            if choice in matches:
-                matches[choice].append(s)
-            else:
-                matches[choice] = [s]
-            ranked = rank_students(choice)
-            matches[choice] = ranked[:schools[choice]['capacity']]
+            if preferred_school not in proposals_this_round:
+                proposals_this_round[preferred_school] = []
+            proposals_this_round[preferred_school].append(s)
+
+        if not proposals_this_round:
+            break
+
+        # 学校ごとにスコアで選抜
+        for school_key, applicants in proposals_this_round.items():
+            current_matched = matches[school_key]
+            total_candidates = current_matched + applicants
+            func = schools[school_key]['score_func']
+            ranked = sorted(total_candidates, key=lambda s: -func(s))
+            accepted = ranked[:schools[school_key]['capacity']]
+            rejected = set(s['name'] for s in total_candidates) - set(s['name'] for s in accepted)
+            matches[school_key] = accepted
+            matched_students.update(s['name'] for s in accepted)
+            matched_students -= rejected  # 落とされた人は再挑戦できるようにする
+
     return matches
+
 
 # マッチングボタン
 if st.button("マッチング開始"):
