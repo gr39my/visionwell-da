@@ -30,6 +30,26 @@ st.title("高校推薦枠マッチングシステム（DAアルゴリズム）")
 if 'students' not in st.session_state:
     st.session_state.students = initial_students.copy()
 
+# === CSVアップロード ===
+st.subheader("CSVアップロード")
+uploaded_file = st.file_uploader("CSVファイルを選択", type=["csv"])
+if uploaded_file is not None:
+    try:
+        df = pd.read_csv(uploaded_file)
+        if 'preferences' in df.columns:
+            df['preferences'] = df['preferences'].apply(
+                lambda x: [p.strip() for p in str(x).split(',') if p.strip() in schools]
+            )
+        else:
+            pref_cols = [c for c in df.columns if c.startswith('pref')]
+            df['preferences'] = df[pref_cols].apply(
+                lambda row: [p for p in row if pd.notna(p) and p in schools], axis=1
+            )
+        st.session_state.students = df[['name', 'grade', 'teamwork', 'preferences']]
+        st.success("CSVから学生データを読み込みました")
+    except Exception as e:
+        st.error("CSVの読み込みに失敗しました")
+
 # === 生徒追加フォーム ===
 st.subheader("生徒の追加")
 
