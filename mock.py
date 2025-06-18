@@ -14,7 +14,7 @@ initial_students = pd.DataFrame({
     ]
 })
 
-schools = {
+initial_schools = {
     'A': {'capacity': 1, 'score_func': lambda s: s['grade'] * 0.7 + s['teamwork'] * 0.3},
     'B': {'capacity': 1, 'score_func': lambda s: s['grade'] * 0.6 + s['teamwork'] * 0.4},
     'C': {'capacity': 1, 'score_func': lambda s: s['grade'] * 0.8 + s['teamwork'] * 0.2},
@@ -29,26 +29,51 @@ st.title("高校推薦枠マッチングシステム（DAアルゴリズム）")
 # セッション状態の初期化
 if 'students' not in st.session_state:
     st.session_state.students = initial_students.copy()
+if 'schools' not in st.session_state:
+    st.session_state.schools = initial_schools.copy()
 
-# === CSVアップロード ===
-st.subheader("CSVアップロード")
-uploaded_file = st.file_uploader("CSVファイルを選択", type=["csv"])
+# === 学生CSVアップロード ===
+st.subheader("学生CSVアップロード")
+uploaded_file = st.file_uploader("学生CSVファイルを選択", type=["csv"], key="student_csv")
 if uploaded_file is not None:
     try:
         df = pd.read_csv(uploaded_file)
         if 'preferences' in df.columns:
             df['preferences'] = df['preferences'].apply(
-                lambda x: [p.strip() for p in str(x).split(',') if p.strip() in schools]
+                lambda x: [p.strip() for p in str(x).split(',') if p.strip() in st.session_state.schools]
             )
         else:
             pref_cols = [c for c in df.columns if c.startswith('pref')]
             df['preferences'] = df[pref_cols].apply(
-                lambda row: [p for p in row if pd.notna(p) and p in schools], axis=1
+                lambda row: [p for p in row if pd.notna(p) and p in st.session_state.schools], axis=1
             )
         st.session_state.students = df[['name', 'grade', 'teamwork', 'preferences']]
         st.success("CSVから学生データを読み込みました")
     except Exception as e:
         st.error("CSVの読み込みに失敗しました")
+
+# === 学校CSVアップロード ===
+st.subheader("学校CSVアップロード")
+uploaded_school = st.file_uploader("学校CSVファイルを選択", type=["csv"], key="school_csv")
+if uploaded_school is not None:
+    try:
+        df = pd.read_csv(uploaded_school)
+        required_cols = {'name', 'capacity', 'grade_weight', 'teamwork_weight'}
+        if required_cols.issubset(df.columns):
+            new_schools = {}
+            for _, row in df.iterrows():
+                gw = float(row['grade_weight'])
+                tw = float(row['teamwork_weight'])
+                new_schools[str(row['name']).strip()] = {
+                    'capacity': int(row['capacity']),
+                    'score_func': lambda s, gw=gw, tw=tw: s['grade'] * gw + s['teamwork'] * tw
+                }
+            st.session_state.schools = new_schools
+            st.success("CSVから学校データを読み込みました")
+        else:
+            st.error("CSVに name, capacity, grade_weight, teamwork_weight 列が必要です")
+    except Exception:
+        st.error("学校CSVの読み込みに失敗しました")
 
 # === 生徒追加フォーム ===
 st.subheader("生徒の追加")
@@ -61,7 +86,7 @@ with st.form("add_student_form"):
 
     submitted = st.form_submit_button("生徒を追加")
     if submitted:
-        prefs = [p.strip() for p in preferences.split(',') if p.strip() in schools]
+        prefs = [p.strip() for p in preferences.split(',') if p.strip() in st.session_state.schools]
         if name and prefs:
             st.session_state.students = pd.concat([
                 st.session_state.students,
@@ -95,19 +120,19 @@ school_display = pd.DataFrame([
         '定員': v['capacity'],
         '評価基準': f"評定×{v['score_func']({'grade':1,'teamwork':0}):.1f} + 協調性×{v['score_func']({'grade':0,'teamwork':1}):.1f}"
     }
-    for k, v in schools.items()
+    for k, v in st.session_state.schools.items()
 ])
 st.table(school_display)
 
 # === DAアルゴリズム ===
 def rank_students(school_key):
-    func = schools[school_key]['score_func']
+    func = st.session_state.schools[school_key]['score_func']
     return sorted(st.session_state.students.to_dict('records'), key=lambda s: -func(s))
 
 def deferred_acceptance():
     students_list = st.session_state.students.to_dict("records")
     proposals = {s['name']: 0 for s in students_list}
-    matches = {school: [] for school in schools}
+    matches = {school: [] for school in st.session_state.schools}
     matched_students = set()
 
     while True:
@@ -129,9 +154,9 @@ def deferred_acceptance():
         for school_key, applicants in proposals_this_round.items():
             current_matched = matches[school_key]
             total_candidates = current_matched + applicants
-            func = schools[school_key]['score_func']
+            func = st.session_state.schools[school_key]['score_func']
             ranked = sorted(total_candidates, key=lambda s: -func(s))
-            accepted = ranked[:schools[school_key]['capacity']]
+            accepted = ranked[:st.session_state.schools[school_key]['capacity']]
             rejected = set(s['name'] for s in total_candidates) - set(s['name'] for s in accepted)
             matches[school_key] = accepted
             matched_students.update(s['name'] for s in accepted)
